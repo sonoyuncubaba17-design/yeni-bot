@@ -1,7 +1,6 @@
 {
   "name": "ds-music-bot",
   "version": "1.0.0",
-  "description": "DS Music Bot - Katalog sistemi",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -12,8 +11,5 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "libsodium-wrappers": "^0.7.13"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
