@@ -7,7 +7,11 @@ const {
   EmbedBuilder,
   SlashCommandBuilder,
   REST,
-  Routes
+  Routes,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ComponentType
 } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -16,7 +20,6 @@ const {
   AudioPlayerStatus,
   StreamType
 } = require('@discordjs/voice');
-const ytdlp = require('yt-dlp-exec');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,7 +27,6 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => {
   res.send('DS Music Bot Aktif!');
 });
-
 app.listen(PORT, () => {
   console.log(`Port ${PORT} dinleniyor`);
 });
@@ -39,6 +41,42 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
+// ==================== KATALOG (istediğin kadar ekle) ====================
+const katalog = [
+  {
+    id: '1',
+    title: 'Never Gonna Give You Up',
+    artist: 'Rick Astley',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' // örnek direkt link
+  },
+  {
+    id: '2',
+    title: 'Shape of You',
+    artist: 'Ed Sheeran',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3'
+  },
+  {
+    id: '3',
+    title: 'Blinding Lights',
+    artist: 'The Weeknd',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'
+  },
+  {
+    id: '4',
+    title: 'Believer',
+    artist: 'Imagine Dragons',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+  },
+  {
+    id: '5',
+    title: 'Someone You Loved',
+    artist: 'Lewis Capaldi',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3'
+  }
+];
+
+// Gerçek şarkı eklemek istersen yukarıdaki gibi title + artist + direkt mp3 linki koyman yeterli.
+
 const queue = new Map();
 
 client.once('ready', async () => {
@@ -46,89 +84,75 @@ client.once('ready', async () => {
 
   const commands = [
     new SlashCommandBuilder()
-      .setName('play')
-      .setDescription('Şarkı çal')
-      .addStringOption(option =>
-        option.setName('sarki')
-          .setDescription('Şarkı adı veya YouTube linki')
-          .setRequired(true)
-      ),
+      .setName('katalog')
+      .setDescription('Şarkı kataloğunu aç ve seç'),
     new SlashCommandBuilder()
       .setName('stop')
       .setDescription('Müziği durdur ve kanaldan çık'),
     new SlashCommandBuilder()
       .setName('skip')
-      .setDescription('Şarkıyı atla'),
-    new SlashCommandBuilder()
-      .setName('queue')
-      .setDescription('Sıradaki şarkıları göster'),
-    new SlashCommandBuilder()
-      .setName('nowplaying')
-      .setDescription('Şu an çalan şarkıyı göster')
-  ].map(command => command.toJSON());
+      .setDescription('Şarkıyı atla')
+  ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
   try {
-    console.log('Slash komutlar yükleniyor...');
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('Slash komutlar yüklendi!');
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand() && !interaction.isStringSelectMenu()) return;
 
-  const { commandName } = interaction;
   const guildId = interaction.guildId;
-  const voiceChannel = interaction.member.voice.channel;
+  const voiceChannel = interaction.member?.voice?.channel;
 
-  if (['play', 'stop', 'skip'].includes(commandName) && !voiceChannel) {
-    return interaction.reply({ content: '❌ Bir ses kanalına girmen gerekiyor!', ephemeral: true });
-  }
-
-  // ==================== PLAY ====================
-  if (commandName === 'play') {
-    await interaction.deferReply();
-
-    const query = interaction.options.getString('sarki');
-    let songInfo;
-
-    try {
-      // yt-dlp ile hem link hem arama destekler
-      const info = await ytdlp(query, {
-        dumpSingleJson: true,
-        noWarnings: true,
-        noCheckCertificates: true,
-        preferFreeFormats: true,
-        defaultSearch: 'ytsearch1',   // arama için
-        'no-playlist': true
-      });
-
-      songInfo = {
-        title: info.title || 'Bilinmeyen Şarkı',
-        url: info.webpage_url || info.url || query,
-        duration: info.duration || 0,
-        thumbnail: info.thumbnail || info.thumbnails?.[0]?.url || null
-      };
-    } catch (err) {
-      console.error("PLAY HATASI:", err);
-      return interaction.editReply(`❌ Şarkı alınırken hata oluştu.\n\`\`\`${err.message}\`\`\``);
+  // ==================== /katalog komutu ====================
+  if (interaction.isChatInputCommand() && interaction.commandName === 'katalog') {
+    if (!voiceChannel) {
+      return interaction.reply({ content: '❌ Önce bir ses kanalına gir!', ephemeral: true });
     }
 
-    const song = {
-      title: songInfo.title,
-      url: songInfo.url,
-      duration: songInfo.duration,
-      thumbnail: songInfo.thumbnail,
-      requestedBy: interaction.user.tag
-    };
+    const options = katalog.map(song =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel(song.title)
+        .setDescription(song.artist)
+        .setValue(song.id)
+    );
 
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('katalog_sec')
+      .setPlaceholder('Şarkı seç...')
+      .addOptions(options);
+
+    const row = new ActionRowBuilder().addComponents(select);
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('🎵 Şarkı Kataloğu')
+      .setDescription('Aşağıdaki menüden istediğin şarkıyı seç:');
+
+    return interaction.reply({ embeds: [embed], components: [row] });
+  }
+
+  // ==================== Şarkı seçildiğinde ====================
+  if (interaction.isStringSelectMenu() && interaction.customId === 'katalog_sec') {
+    await interaction.deferUpdate();
+
+    if (!voiceChannel) {
+      return interaction.followUp({ content: '❌ Ses kanalından çıkmışsın!', ephemeral: true });
+    }
+
+    const secilenId = interaction.values[0];
+    const song = katalog.find(s => s.id === secilenId);
+
+    if (!song) {
+      return interaction.followUp({ content: '❌ Şarkı bulunamadı.', ephemeral: true });
+    }
+
+    // Kuyruk yoksa yeni oluştur
     if (!queue.has(guildId)) {
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
@@ -150,9 +174,7 @@ client.on('interactionCreate', async (interaction) => {
       player.on(AudioPlayerStatus.Idle, () => {
         const serverQueue = queue.get(guildId);
         if (!serverQueue) return;
-
         serverQueue.songs.shift();
-
         if (serverQueue.songs.length > 0) {
           playSong(guildId, serverQueue.songs[0]);
         } else {
@@ -161,137 +183,53 @@ client.on('interactionCreate', async (interaction) => {
         }
       });
 
-      player.on('error', error => {
-        console.error(error);
-        const serverQueue = queue.get(guildId);
-        if (serverQueue) {
-          serverQueue.connection.destroy();
-          queue.delete(guildId);
-        }
-      });
-
       playSong(guildId, song);
-
-      const embed = new EmbedBuilder()
-        .setColor('#57F287')
-        .setTitle('🎵 Şarkı Çalınıyor')
-        .setDescription(`[${song.title}](${song.url})`)
-        .setThumbnail(song.thumbnail)
-        .addFields(
-          { name: 'Süre', value: formatTime(song.duration), inline: true },
-          { name: 'İsteyen', value: song.requestedBy, inline: true }
-        )
-        .setTimestamp();
-
-      return interaction.editReply({ embeds: [embed] });
     } else {
+      // Zaten çalıyorsa sıraya ekle
       const serverQueue = queue.get(guildId);
       serverQueue.songs.push(song);
-
-      const embed = new EmbedBuilder()
-        .setColor('#5865F2')
-        .setTitle('📥 Sıraya Eklendi')
-        .setDescription(`[${song.title}](${song.url})`)
-        .setThumbnail(song.thumbnail)
-        .addFields(
-          { name: 'Sıra', value: `${serverQueue.songs.length}`, inline: true },
-          { name: 'İsteyen', value: song.requestedBy, inline: true }
-        );
-
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.followUp({ content: `📥 **${song.title}** sıraya eklendi.` });
     }
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('🎵 Çalıyor')
+      .setDescription(`**${song.title}** - ${song.artist}`);
+
+    return interaction.followUp({ embeds: [embed] });
   }
 
   // ==================== STOP ====================
-  if (commandName === 'stop') {
+  if (interaction.isChatInputCommand() && interaction.commandName === 'stop') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
       return interaction.reply({ content: '❌ Şu an çalan bir şey yok.', ephemeral: true });
     }
-
     serverQueue.songs = [];
     serverQueue.player.stop();
     serverQueue.connection.destroy();
     queue.delete(guildId);
-
-    return interaction.reply('⏹️ Müzik durduruldu ve kanaldan çıkıldı.');
+    return interaction.reply('⏹️ Müzik durduruldu.');
   }
 
   // ==================== SKIP ====================
-  if (commandName === 'skip') {
+  if (interaction.isChatInputCommand() && interaction.commandName === 'skip') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
       return interaction.reply({ content: '❌ Şu an çalan bir şey yok.', ephemeral: true });
     }
-
     serverQueue.player.stop();
     return interaction.reply('⏭️ Şarkı atlandı.');
   }
-
-  // ==================== QUEUE ====================
-  if (commandName === 'queue') {
-    const serverQueue = queue.get(guildId);
-    if (!serverQueue || serverQueue.songs.length === 0) {
-      return interaction.reply({ content: '❌ Sırada şarkı yok.', ephemeral: true });
-    }
-
-    const list = serverQueue.songs
-      .map((song, i) => `**${i + 1}.** [${song.title}](${song.url}) - \`${formatTime(song.duration)}\``)
-      .slice(0, 15)
-      .join('\n');
-
-    const embed = new EmbedBuilder()
-      .setColor('#5865F2')
-      .setTitle('📜 Şarkı Sırası')
-      .setDescription(list)
-      .setFooter({ text: `Toplam ${serverQueue.songs.length} şarkı` });
-
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  // ==================== NOW PLAYING ====================
-  if (commandName === 'nowplaying') {
-    const serverQueue = queue.get(guildId);
-    if (!serverQueue || serverQueue.songs.length === 0) {
-      return interaction.reply({ content: '❌ Şu an çalan bir şey yok.', ephemeral: true });
-    }
-
-    const song = serverQueue.songs[0];
-
-    const embed = new EmbedBuilder()
-      .setColor('#57F287')
-      .setTitle('🎶 Şu An Çalıyor')
-      .setDescription(`[${song.title}](${song.url})`)
-      .setThumbnail(song.thumbnail)
-      .addFields(
-        { name: 'Süre', value: formatTime(song.duration), inline: true },
-        { name: 'İsteyen', value: song.requestedBy, inline: true }
-      );
-
-    return interaction.reply({ embeds: [embed] });
-  }
 });
 
-// ==================== ÇALMA FONKSİYONU (yt-dlp) ====================
-async function playSong(guildId, song) {
+// ==================== Çalma fonksiyonu ====================
+function playSong(guildId, song) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue) return;
 
   try {
-    const stream = ytdlp.exec(
-      song.url,
-      {
-        o: '-',                    // stdout'a yaz
-        q: true,                   // sessiz
-        f: 'bestaudio[ext=webm]/bestaudio/best',
-        'no-playlist': true,
-        'no-warnings': true,
-        r: '100K'                  // rate limit (isteğe bağlı)
-      },
-      { stdio: ['ignore', 'pipe', 'ignore'] }
-    );
-
-    const resource = createAudioResource(stream.stdout, {
+    const resource = createAudioResource(song.url, {
       inputType: StreamType.Arbitrary,
       inlineVolume: true
     });
@@ -301,15 +239,12 @@ async function playSong(guildId, song) {
     const embed = new EmbedBuilder()
       .setColor('#57F287')
       .setTitle('🎵 Şimdi Çalıyor')
-      .setDescription(`[${song.title}](${song.url})`)
-      .setThumbnail(song.thumbnail)
-      .setFooter({ text: `İsteyen: ${song.requestedBy}` });
+      .setDescription(`**${song.title}** - ${song.artist}`);
 
     serverQueue.textChannel.send({ embeds: [embed] }).catch(() => {});
   } catch (err) {
-    console.error('playSong hatası:', err);
-    serverQueue.textChannel.send('❌ Şarkı çalınırken hata oluştu.').catch(() => {});
-
+    console.error(err);
+    serverQueue.textChannel.send('❌ Şarkı çalınamadı.').catch(() => {});
     serverQueue.songs.shift();
     if (serverQueue.songs.length > 0) {
       playSong(guildId, serverQueue.songs[0]);
@@ -318,13 +253,6 @@ async function playSong(guildId, song) {
       queue.delete(guildId);
     }
   }
-}
-
-function formatTime(seconds) {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const min = Math.floor(seconds / 60);
-  const sec = Math.floor(seconds % 60);
-  return `${min}:${sec < 10 ? '0' : ''}${sec}`;
 }
 
 client.login(process.env.TOKEN);
