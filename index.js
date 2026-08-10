@@ -108,10 +108,10 @@ client.on('interactionCreate', async (interaction) => {
         }
         songInfo = await play.video_info(searched[0].url);
       }
-    } catch (err) {
-      console.error(err);
-      return interaction.editReply('❌ Şarkı alınırken hata oluştu.');
-    }
+   } catch (err) {
+  console.error("PLAY HATASI:", err);
+  return interaction.editReply(`❌ Şarkı alınırken hata oluştu.\n\`\`\`${err.message}\`\`\``);
+}
 
     const song = {
       title: songInfo.video_details.title,
