@@ -18,7 +18,6 @@ const {
   createAudioResource,
   AudioPlayerStatus,
   VoiceConnectionStatus,
-  entersState,
   StreamType
 } = require('@discordjs/voice');
 
@@ -37,7 +36,6 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-// Daha güvenilir test linkleri
 const katalog = [
   { id: '1', title: 'Test Şarkı 1', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
   { id: '2', title: 'Test Şarkı 2', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
@@ -136,12 +134,14 @@ client.on('interactionCreate', async (interaction) => {
           channelId: voiceChannel.id,
           guildId,
           adapterCreator: interaction.guild.voiceAdapterCreator,
-          selfDeaf: false,          // önemli
+          selfDeaf: false,
           selfMute: false
         });
 
-        // Bağlantının hazır olmasını bekle
-        await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+        // Bağlantı durumunu logla
+        connection.on('stateChange', (oldState, newState) => {
+          console.log(`Bağlantı: ${oldState.status} → ${newState.status}`);
+        });
 
         const player = createAudioPlayer();
         connection.subscribe(player);
@@ -169,7 +169,11 @@ client.on('interactionCreate', async (interaction) => {
           console.error('Player hatası:', error);
         });
 
-        await playSong(guildId, song);
+        // Biraz bekle sonra çalmayı dene
+        setTimeout(() => {
+          playSong(guildId, song);
+        }, 2000);
+
       } else {
         queue.get(guildId).songs.push(song);
         return interaction.followUp({ content: `📥 **${song.title}** sıraya eklendi.` });
@@ -193,7 +197,7 @@ async function playSong(guildId, song) {
   if (!q) return;
 
   try {
-    console.log('Şarkı çalınıyor:', song.title, song.url);
+    console.log('Çalınıyor:', song.title);
 
     const resource = createAudioResource(song.url, {
       inputType: StreamType.Arbitrary,
@@ -201,7 +205,7 @@ async function playSong(guildId, song) {
     });
 
     if (resource.volume) {
-      resource.volume.setVolume(1); // sesi maksimuma çek
+      resource.volume.setVolume(1);
     }
 
     q.player.play(resource);
@@ -216,7 +220,7 @@ async function playSong(guildId, song) {
     }).catch(() => {});
   } catch (err) {
     console.error('playSong hatası:', err);
-    q.textChannel.send('❌ Şarkı çalınamadı: ' + err.message).catch(() => {});
+    q.textChannel.send(`❌ Çalınamadı: ${err.message}`).catch(() => {});
   }
 }
 
