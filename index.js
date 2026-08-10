@@ -1,12 +1,10 @@
 require('dotenv').config();
+const express = require('express');
 const {
   Client,
   GatewayIntentBits,
   Partials,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   SlashCommandBuilder,
   REST,
   Routes
@@ -15,11 +13,20 @@ const {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-  entersState
+  AudioPlayerStatus
 } = require('@discordjs/voice');
 const play = require('play-dl');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('DS Music Bot Aktif!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Port ${PORT} dinleniyor`);
+});
 
 const client = new Client({
   intents: [
@@ -31,12 +38,11 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-const queue = new Map(); // Sunucu bazlı kuyruk
+const queue = new Map();
 
 client.once('ready', async () => {
   console.log(`✅ ${client.user.tag} müzik botu aktif!`);
 
-  // Slash komutları kaydet
   const commands = [
     new SlashCommandBuilder()
       .setName('play')
@@ -81,12 +87,11 @@ client.on('interactionCreate', async (interaction) => {
   const guildId = interaction.guildId;
   const voiceChannel = interaction.member.voice.channel;
 
-  // Ortak kontroller
   if (['play', 'stop', 'skip'].includes(commandName) && !voiceChannel) {
     return interaction.reply({ content: '❌ Bir ses kanalına girmen gerekiyor!', ephemeral: true });
   }
 
-  // ========== PLAY ==========
+  // PLAY
   if (commandName === 'play') {
     await interaction.deferReply();
 
@@ -94,7 +99,6 @@ client.on('interactionCreate', async (interaction) => {
     let songInfo;
 
     try {
-      // YouTube arama veya link
       if (play.yt_validate(query) === 'video') {
         songInfo = await play.video_info(query);
       } else {
@@ -118,7 +122,6 @@ client.on('interactionCreate', async (interaction) => {
     };
 
     if (!queue.has(guildId)) {
-      // Yeni kuyruk oluştur
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: guildId,
@@ -173,7 +176,6 @@ client.on('interactionCreate', async (interaction) => {
 
       return interaction.editReply({ embeds: [embed] });
     } else {
-      // Kuyruğa ekle
       const serverQueue = queue.get(guildId);
       serverQueue.songs.push(song);
 
@@ -191,7 +193,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // ========== STOP ==========
+  // STOP
   if (commandName === 'stop') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
@@ -206,18 +208,18 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply('⏹️ Müzik durduruldu ve kanaldan çıkıldı.');
   }
 
-  // ========== SKIP ==========
+  // SKIP
   if (commandName === 'skip') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
       return interaction.reply({ content: '❌ Şu an çalan bir şey yok.', ephemeral: true });
     }
 
-    serverQueue.player.stop(); // Idle event bir sonrakine geçer
+    serverQueue.player.stop();
     return interaction.reply('⏭️ Şarkı atlandı.');
   }
 
-  // ========== QUEUE ==========
+  // QUEUE
   if (commandName === 'queue') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue || serverQueue.songs.length === 0) {
@@ -238,7 +240,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ========== NOW PLAYING ==========
+  // NOW PLAYING
   if (commandName === 'nowplaying') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue || serverQueue.songs.length === 0) {
