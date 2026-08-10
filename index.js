@@ -13,9 +13,10 @@ const {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus
+  AudioPlayerStatus,
+  StreamType
 } = require('@discordjs/voice');
-const play = require('play-dl');
+const ytdlp = require('yt-dlp-exec');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -91,7 +92,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ content: '❌ Bir ses kanalına girmen gerekiyor!', ephemeral: true });
   }
 
-  // PLAY
+  // ==================== PLAY ====================
   if (commandName === 'play') {
     await interaction.deferReply();
 
@@ -99,25 +100,32 @@ client.on('interactionCreate', async (interaction) => {
     let songInfo;
 
     try {
-      if (play.yt_validate(query) === 'video') {
-        songInfo = await play.video_info(query);
-      } else {
-        const searched = await play.search(query, { limit: 1 });
-        if (!searched || searched.length === 0) {
-          return interaction.editReply('❌ Şarkı bulunamadı.');
-        }
-        songInfo = await play.video_info(searched[0].url);
-      }
-   } catch (err) {
-  console.error("PLAY HATASI:", err);
-  return interaction.editReply(`❌ Şarkı alınırken hata oluştu.\n\`\`\`${err.message}\`\`\``);
-}
+      // yt-dlp ile hem link hem arama destekler
+      const info = await ytdlp(query, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificates: true,
+        preferFreeFormats: true,
+        defaultSearch: 'ytsearch1',   // arama için
+        'no-playlist': true
+      });
+
+      songInfo = {
+        title: info.title || 'Bilinmeyen Şarkı',
+        url: info.webpage_url || info.url || query,
+        duration: info.duration || 0,
+        thumbnail: info.thumbnail || info.thumbnails?.[0]?.url || null
+      };
+    } catch (err) {
+      console.error("PLAY HATASI:", err);
+      return interaction.editReply(`❌ Şarkı alınırken hata oluştu.\n\`\`\`${err.message}\`\`\``);
+    }
 
     const song = {
-      title: songInfo.video_details.title,
-      url: songInfo.video_details.url,
-      duration: songInfo.video_details.durationInSec,
-      thumbnail: songInfo.video_details.thumbnails[0]?.url,
+      title: songInfo.title,
+      url: songInfo.url,
+      duration: songInfo.duration,
+      thumbnail: songInfo.thumbnail,
       requestedBy: interaction.user.tag
     };
 
@@ -144,6 +152,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!serverQueue) return;
 
         serverQueue.songs.shift();
+
         if (serverQueue.songs.length > 0) {
           playSong(guildId, serverQueue.songs[0]);
         } else {
@@ -193,7 +202,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // STOP
+  // ==================== STOP ====================
   if (commandName === 'stop') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
@@ -208,7 +217,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply('⏹️ Müzik durduruldu ve kanaldan çıkıldı.');
   }
 
-  // SKIP
+  // ==================== SKIP ====================
   if (commandName === 'skip') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue) {
@@ -219,7 +228,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply('⏭️ Şarkı atlandı.');
   }
 
-  // QUEUE
+  // ==================== QUEUE ====================
   if (commandName === 'queue') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue || serverQueue.songs.length === 0) {
@@ -240,7 +249,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // NOW PLAYING
+  // ==================== NOW PLAYING ====================
   if (commandName === 'nowplaying') {
     const serverQueue = queue.get(guildId);
     if (!serverQueue || serverQueue.songs.length === 0) {
@@ -248,6 +257,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     const song = serverQueue.songs[0];
+
     const embed = new EmbedBuilder()
       .setColor('#57F287')
       .setTitle('🎶 Şu An Çalıyor')
@@ -262,14 +272,28 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ==================== ÇALMA FONKSİYONU (yt-dlp) ====================
 async function playSong(guildId, song) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue) return;
 
   try {
-    const stream = await play.stream(song.url);
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type
+    const stream = ytdlp.exec(
+      song.url,
+      {
+        o: '-',                    // stdout'a yaz
+        q: true,                   // sessiz
+        f: 'bestaudio[ext=webm]/bestaudio/best',
+        'no-playlist': true,
+        'no-warnings': true,
+        r: '100K'                  // rate limit (isteğe bağlı)
+      },
+      { stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+
+    const resource = createAudioResource(stream.stdout, {
+      inputType: StreamType.Arbitrary,
+      inlineVolume: true
     });
 
     serverQueue.player.play(resource);
@@ -283,8 +307,9 @@ async function playSong(guildId, song) {
 
     serverQueue.textChannel.send({ embeds: [embed] }).catch(() => {});
   } catch (err) {
-    console.error(err);
+    console.error('playSong hatası:', err);
     serverQueue.textChannel.send('❌ Şarkı çalınırken hata oluştu.').catch(() => {});
+
     serverQueue.songs.shift();
     if (serverQueue.songs.length > 0) {
       playSong(guildId, serverQueue.songs[0]);
@@ -296,8 +321,9 @@ async function playSong(guildId, song) {
 }
 
 function formatTime(seconds) {
+  if (!seconds || isNaN(seconds)) return '0:00';
   const min = Math.floor(seconds / 60);
-  const sec = seconds % 60;
+  const sec = Math.floor(seconds % 60);
   return `${min}:${sec < 10 ? '0' : ''}${sec}`;
 }
 
