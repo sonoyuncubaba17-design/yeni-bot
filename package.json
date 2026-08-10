@@ -1,6 +1,7 @@
 {
-  "name": "muzik-bot",
+  "name": "ds-music-bot",
   "version": "1.0.0",
+  "description": "DS Music Bot - Katalog sistemi",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -8,9 +9,11 @@
   "dependencies": {
     "discord.js": "^14.16.3",
     "@discordjs/voice": "^0.17.0",
-    "play-dl": "^1.9.7",
     "dotenv": "^16.4.5",
-    "libsodium-wrappers": "^0.7.13",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "libsodium-wrappers": "^0.7.13"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
