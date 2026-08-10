@@ -17,12 +17,13 @@ const {
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
+  VoiceConnectionStatus,
+  entersState,
   StreamType
 } = require('@discordjs/voice');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.get('/', (req, res) => res.send('DS Music Bot Aktif!'));
 app.listen(PORT, () => console.log(`Port ${PORT} dinleniyor`));
 
@@ -36,13 +37,13 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-// ==================== KATALOG ====================
+// Daha güvenilir test linkleri
 const katalog = [
-  { id: '1', title: 'Never Gonna Give You Up', artist: 'Rick Astley', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
-  { id: '2', title: 'Shape of You', artist: 'Ed Sheeran', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
-  { id: '3', title: 'Blinding Lights', artist: 'The Weeknd', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3' },
-  { id: '4', title: 'Believer', artist: 'Imagine Dragons', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3' },
-  { id: '5', title: 'Someone You Loved', artist: 'Lewis Capaldi', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3' }
+  { id: '1', title: 'Test Şarkı 1', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+  { id: '2', title: 'Test Şarkı 2', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
+  { id: '3', title: 'Test Şarkı 3', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3' },
+  { id: '4', title: 'Test Şarkı 4', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3' },
+  { id: '5', title: 'Test Şarkı 5', artist: 'SoundHelix', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3' }
 ];
 
 const queue = new Map();
@@ -51,36 +52,26 @@ client.once('ready', async () => {
   console.log(`✅ ${client.user.tag} aktif!`);
 
   const commands = [
-    new SlashCommandBuilder()
-      .setName('katalog')
-      .setDescription('Şarkı kataloğunu aç'),
-    new SlashCommandBuilder()
-      .setName('stop')
-      .setDescription('Müziği durdur'),
-    new SlashCommandBuilder()
-      .setName('skip')
-      .setDescription('Şarkıyı atla')
+    new SlashCommandBuilder().setName('katalog').setDescription('Şarkı kataloğunu aç'),
+    new SlashCommandBuilder().setName('stop').setDescription('Müziği durdur'),
+    new SlashCommandBuilder().setName('skip').setDescription('Şarkıyı atla')
   ].map(c => c.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
   try {
-    console.log('Komutlar yükleniyor...');
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('Komutlar yüklendi!');
   } catch (err) {
-    console.error('Komut yükleme hatası:', err);
+    console.error(err);
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
-  // Slash komutlar
   if (interaction.isChatInputCommand()) {
     const { commandName } = interaction;
     const voiceChannel = interaction.member.voice.channel;
     const guildId = interaction.guildId;
 
-    // /katalog
     if (commandName === 'katalog') {
       if (!voiceChannel) {
         return interaction.reply({ content: '❌ Önce bir ses kanalına gir!', ephemeral: true });
@@ -88,8 +79,8 @@ client.on('interactionCreate', async (interaction) => {
 
       const options = katalog.map(song =>
         new StringSelectMenuOptionBuilder()
-          .setLabel(song.title.substring(0, 100))
-          .setDescription(song.artist.substring(0, 100))
+          .setLabel(song.title)
+          .setDescription(song.artist)
           .setValue(song.id)
       );
 
@@ -103,34 +94,29 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('🎵 Şarkı Kataloğu')
-        .setDescription('Aşağıdan istediğin şarkıyı seç:');
+        .setDescription('Aşağıdan şarkı seç:');
 
       return interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // /stop
     if (commandName === 'stop') {
-      const serverQueue = queue.get(guildId);
-      if (!serverQueue) return interaction.reply({ content: '❌ Çalan bir şey yok.', ephemeral: true });
-
-      serverQueue.songs = [];
-      serverQueue.player.stop();
-      serverQueue.connection.destroy();
+      const q = queue.get(guildId);
+      if (!q) return interaction.reply({ content: '❌ Çalan bir şey yok.', ephemeral: true });
+      q.songs = [];
+      q.player.stop();
+      q.connection.destroy();
       queue.delete(guildId);
       return interaction.reply('⏹️ Durduruldu.');
     }
 
-    // /skip
     if (commandName === 'skip') {
-      const serverQueue = queue.get(guildId);
-      if (!serverQueue) return interaction.reply({ content: '❌ Çalan bir şey yok.', ephemeral: true });
-
-      serverQueue.player.stop();
+      const q = queue.get(guildId);
+      if (!q) return interaction.reply({ content: '❌ Çalan bir şey yok.', ephemeral: true });
+      q.player.stop();
       return interaction.reply('⏭️ Atlandı.');
     }
   }
 
-  // Select Menu seçildiğinde
   if (interaction.isStringSelectMenu() && interaction.customId === 'sarki_sec') {
     await interaction.deferUpdate();
 
@@ -144,58 +130,80 @@ client.on('interactionCreate', async (interaction) => {
 
     const guildId = interaction.guildId;
 
-    if (!queue.has(guildId)) {
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId,
-        adapterCreator: interaction.guild.voiceAdapterCreator,
-        selfDeaf: true
-      });
+    try {
+      if (!queue.has(guildId)) {
+        const connection = joinVoiceChannel({
+          channelId: voiceChannel.id,
+          guildId,
+          adapterCreator: interaction.guild.voiceAdapterCreator,
+          selfDeaf: false,          // önemli
+          selfMute: false
+        });
 
-      const player = createAudioPlayer();
-      connection.subscribe(player);
+        // Bağlantının hazır olmasını bekle
+        await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
 
-      queue.set(guildId, {
-        connection,
-        player,
-        songs: [song],
-        textChannel: interaction.channel
-      });
+        const player = createAudioPlayer();
+        connection.subscribe(player);
 
-      player.on(AudioPlayerStatus.Idle, () => {
-        const q = queue.get(guildId);
-        if (!q) return;
-        q.songs.shift();
-        if (q.songs.length > 0) playSong(guildId, q.songs[0]);
-        else {
-          q.connection.destroy();
-          queue.delete(guildId);
-        }
-      });
+        queue.set(guildId, {
+          connection,
+          player,
+          songs: [song],
+          textChannel: interaction.channel
+        });
 
-      playSong(guildId, song);
-    } else {
-      queue.get(guildId).songs.push(song);
-      return interaction.followUp({ content: `📥 **${song.title}** sıraya eklendi.` });
+        player.on(AudioPlayerStatus.Idle, () => {
+          const q = queue.get(guildId);
+          if (!q) return;
+          q.songs.shift();
+          if (q.songs.length > 0) {
+            playSong(guildId, q.songs[0]);
+          } else {
+            q.connection.destroy();
+            queue.delete(guildId);
+          }
+        });
+
+        player.on('error', error => {
+          console.error('Player hatası:', error);
+        });
+
+        await playSong(guildId, song);
+      } else {
+        queue.get(guildId).songs.push(song);
+        return interaction.followUp({ content: `📥 **${song.title}** sıraya eklendi.` });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('🎵 Çalıyor')
+        .setDescription(`**${song.title}** - ${song.artist}`);
+
+      interaction.followUp({ embeds: [embed] });
+    } catch (err) {
+      console.error('Bağlantı hatası:', err);
+      interaction.followUp({ content: '❌ Ses kanalına bağlanırken hata oluştu.', ephemeral: true });
     }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x57F287)
-      .setTitle('🎵 Çalıyor')
-      .setDescription(`**${song.title}** - ${song.artist}`);
-
-    interaction.followUp({ embeds: [embed] });
   }
 });
 
-function playSong(guildId, song) {
+async function playSong(guildId, song) {
   const q = queue.get(guildId);
   if (!q) return;
 
   try {
+    console.log('Şarkı çalınıyor:', song.title, song.url);
+
     const resource = createAudioResource(song.url, {
-      inputType: StreamType.Arbitrary
+      inputType: StreamType.Arbitrary,
+      inlineVolume: true
     });
+
+    if (resource.volume) {
+      resource.volume.setVolume(1); // sesi maksimuma çek
+    }
+
     q.player.play(resource);
 
     q.textChannel.send({
@@ -207,8 +215,8 @@ function playSong(guildId, song) {
       ]
     }).catch(() => {});
   } catch (err) {
-    console.error(err);
-    q.textChannel.send('❌ Şarkı çalınamadı.').catch(() => {});
+    console.error('playSong hatası:', err);
+    q.textChannel.send('❌ Şarkı çalınamadı: ' + err.message).catch(() => {});
   }
 }
 
